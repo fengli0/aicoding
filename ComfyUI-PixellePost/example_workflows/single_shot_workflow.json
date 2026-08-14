@@ -1,0 +1,83 @@
+{
+  "last_node_id": 15,
+  "last_link_id": 20,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "PixelleCreateShot",
+      "pos": [100, 100],
+      "size": [300, 400],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {"name": "image", "type": "IMAGE", "link": null},
+        {"name": "audio", "type": "AUDIO", "link": null}
+      ],
+      "outputs": [
+        {"name": "shot", "type": "PIXELLE_SHOT", "links": [1]},
+        {"name": "json", "type": "STRING", "links": [2]}
+      ],
+      "properties": {"Node name for S&R": "PixelleCreateShot"},
+      "widgets_values": ["第一段旁白内容", 1, "", "", "产品介绍", "cut", 0.25]
+    },
+    {
+      "id": 2,
+      "type": "PixelleRenderSubtitle",
+      "pos": [450, 100],
+      "size": [300, 350],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [{"name": "shot_json", "type": "STRING", "link": 2}],
+      "outputs": [
+        {"name": "ass_path", "type": "STRING", "links": [3]},
+        {"name": "ass_content", "type": "STRING", "links": null}
+      ],
+      "properties": {"Node name for S&R": "PixelleRenderSubtitle"},
+      "widgets_values": ["Microsoft YaHei", 42, "#FFFFFF", "#000000", 3, "bottom", 120]
+    },
+    {
+      "id": 3,
+      "type": "PixelleComposeScene",
+      "pos": [800, 100],
+      "size": [300, 300],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {"name": "shot_json", "type": "STRING", "link": 2},
+        {"name": "subtitle_path", "type": "STRING", "link": 3}
+      ],
+      "outputs": [
+        {"name": "video_asset", "type": "PIXELLE_VIDEO", "links": [4]},
+        {"name": "video_path", "type": "STRING", "links": null}
+      ],
+      "properties": {"Node name for S&R": "PixelleComposeScene"},
+      "widgets_values": [720, 1280, 24, "contain", "audio"]
+    },
+    {
+      "id": 4,
+      "type": "PixelleSaveVideo",
+      "pos": [1150, 100],
+      "size": [250, 150],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [{"name": "video_asset_json", "type": "STRING", "link": 4}],
+      "outputs": [{"name": "video_path", "type": "STRING", "links": null}],
+      "properties": {"Node name for S&R": "PixelleSaveVideo"},
+      "widgets_values": ["pixelle_shot1", ""]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 5, 0, "PIXELLE_SHOT"],
+    [2, 1, 1, 2, 0, "STRING"],
+    [3, 2, 0, 3, 1, "STRING"],
+    [4, 3, 0, 4, 0, "STRING"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

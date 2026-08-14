@@ -1,0 +1,187 @@
+"""
+Subtitle service for generating ASS subtitle files.
+
+Handles:
+- ASS file generation with proper escaping
+- Subtitle timing and positioning
+- Font, color, outline, and shadow configuration
+"""
+
+import re
+from pathlib import Path
+from typing import List, Optional
+from datetime import timedelta
+
+from .dto import SubtitleEvent, SubtitleStyle
+
+
+class SubtitleService:
+    """
+    Service for generating ASS subtitle files.
+    
+    ASS format is preferred over HTML for node-based post-processing:
+    - Supports Chinese fonts, per-shot timing, kerning, outline, shadow
+    - No Chromium dependency, lighter deployment
+    - Vector/text track semantics, stays sharp during transcoding
+    - Consistent synthesis path for video and static images
+    """
+    
+    def generate_ass(
+        self,
+        events: List[SubtitleEvent],
+        style: SubtitleStyle,
+        output_path: str,
+        canvas_width: int = 720,
+        canvas_height: int = 1280,
+    ) -> str:
+        """
+        Generate an ASS subtitle file.
+        
+        Args:
+            events: List of subtitle events with timing
+            style: Subtitle style configuration
+            output_path: Path for the output ASS file
+            canvas_width: Canvas width for positioning
+            canvas_height: Canvas height for positioning
+            
+        Returns:
+            The output path
+        """
+        # Escape special ASS characters in text
+        escaped_events = []
+        for event in events:
+            escaped_text = self._escape_ass_text(event.text)
+            escaped_events.append(SubtitleEvent(
+                text=escaped_text,
+                start=event.start,
+                end=event.end,
+            ))
+        
+        # Build ASS content
+        ass_content = self._build_ass(
+            events=escaped_events,
+            style=style,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        )
+        
+        # Write to file
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with open(output, 'w', encoding='utf-8-sig') as f:
+            f.write(ass_content)
+        
+        return str(output)
+    
+    def _escape_ass_text(self, text: str) -> str:
+        """
+        Escape special ASS characters.
+        
+        ASS uses {} for control codes and has special handling for
+        backslashes, commas, and line breaks.
+        """
+        # Escape backslashes first
+        text = text.replace('\\', '\\\\')
+        
+        # Escape curly braces (used for ASS tags)
+        text = text.replace('{', '\\{')
+        text = text.replace('}', '\\}')
+        
+        # Normalize line breaks to ASS line break tag
+        text = text.replace('\r\n', '\\N')
+        text = text.replace('\n', '\\N')
+        text = text.replace('\r', '\\N')
+        
+        return text
+    
+    def _format_timestamp(self, seconds: float) -> str:
+        """
+        Convert seconds to ASS timestamp format: H:MM:SS.cc
+        
+        ASS uses centiseconds (cc) for precision.
+        """
+        if seconds < 0:
+            seconds = 0.0
+        
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        centisecs = int(round((seconds % 1) * 100))
+        
+        return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
+    
+    def _hex_to_ass_color(self, hex_color: str) -> str:
+        """
+        Convert hex color (#RRGGBB) to ASS format (&HAABBGGRR).
+        
+        ASS uses BBGGRR format with alpha prefix.
+        """
+        hex_color = hex_color.lstrip('#')
+        if len(hex_color) != 6:
+            return "&H00FFFFFF"  # Default to white
+        
+        # Parse RGB
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        
+        # ASS format: &HAABBGGRR (alpha is 00 for opaque)
+        return f"&H00{b:02X}{g:02X}{r:02X}"
+    
+    def _build_ass(
+        self,
+        events: List[SubtitleEvent],
+        style: SubtitleStyle,
+        canvas_width: int,
+        canvas_height: int,
+    ) -> str:
+        """Build complete ASS file content."""
+        
+        # Calculate position based on style
+        # ASS alignment codes: 1=Left/Bottom, 2=Center/Bottom, 3=Right/Bottom
+        #                      4=Left/Center, 5=Center/Center, 6=Right/Center
+        #                      7=Left/Top, 8=Center/Top, 9=Right/Top
+        alignment = 2  # Center/Bottom default
+        
+        margin_bottom = style.margin_bottom
+        margin_left = 20
+        margin_right = 20
+        
+        if style.position == "top":
+            alignment = 8  # Center/Top
+            margin_bottom = 0
+        elif style.position == "center":
+            alignment = 5  # Center/Center
+            margin_bottom = 0
+        
+        # Build header
+        header = f"""[Script Info]
+; Script generated by ComfyUI-PixellePost
+ScriptType: v4.00+
+PlayResX: {canvas_width}
+PlayResY: {canvas_height}
+Timer: 100.0000
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{style.font_name},{style.font_size},{self._hex_to_ass_color(style.font_color)},&H00FFFFFF,{self._hex_to_ass_color(style.outline_color)},&H00000000,0,0,0,0,100,100,0,0,1,{style.outline_width},0,{alignment},{margin_left},{margin_right},{margin_bottom},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+        
+        # Build dialogue lines
+        dialogues = []
+        for event in events:
+            start = self._format_timestamp(event.start)
+            end = self._format_timestamp(event.end) if event.end is not None else self._format_timestamp(event.start + 5.0)
+            
+            # Apply ASS styling to text
+            # {\an8} = center top alignment, etc.
+            styled_text = event.text
+            
+            dialogues.append(
+                f"Dialogue: 0,{start},{end},Default,,{margin_left},{margin_right},{margin_bottom},,{styled_text}"
+            )
+        
+        return header + "\n".join(dialogues) + "\n"

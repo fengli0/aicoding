@@ -1,0 +1,7 @@
+```
+# Temp files and generated content
+temp/
+*.wav
+*.png
+*.ass
+```

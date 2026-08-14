@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "job_id": "example-marketing-video-001",
+  "canvas": {
+    "width": 720,
+    "height": 1280,
+    "fps": 24
+  },
+  "subtitle_style": {
+    "font_name": "Microsoft YaHei",
+    "font_size": 42,
+    "font_color": "#FFFFFF",
+    "outline_color": "#000000",
+    "outline_width": 3,
+    "position": "bottom",
+    "margin_bottom": 120
+  },
+  "fit_mode": "contain",
+  "duration_policy": "audio",
+  "subtitle_renderer": "ass",
+  "shots": [
+    {
+      "index": 1,
+      "media": {
+        "type": "image",
+        "path": "output/flux/product-shot-001.png"
+      },
+      "audio": {
+        "path": "output/tts/narration-001.wav"
+      },
+      "subtitle": {
+        "text": "欢迎来到我们的产品演示",
+        "start": 0.0,
+        "end": null
+      },
+      "title": "产品介绍",
+      "transition_after": {
+        "type": "fade",
+        "duration": 0.25
+      }
+    },
+    {
+      "index": 2,
+      "media": {
+        "type": "video",
+        "path": "output/wan/demo-video-002.mp4"
+      },
+      "audio": {
+        "path": "output/tts/narration-002.wav"
+      },
+      "subtitle": {
+        "text": "这是我们的核心功能展示",
+        "start": 0.0,
+        "end": null
+      },
+      "title": "功能演示",
+      "transition_after": {
+        "type": "cut"
+      }
+    },
+    {
+      "index": 3,
+      "media": {
+        "type": "image",
+        "path": "output/flux/product-shot-003.png"
+      },
+      "audio": {
+        "path": "output/tts/narration-003.wav"
+      },
+      "subtitle": {
+        "text": "立即订购享受优惠",
+        "start": 0.0,
+        "end": null
+      },
+      "title": "购买引导",
+      "transition_after": {
+        "type": "fade",
+        "duration": 0.5
+      }
+    }
+  ],
+  "bgm": {
+    "path": "input/bgm/upbeat-corporate.mp3",
+    "volume": 0.20,
+    "mode": "loop"
+  }
+}
