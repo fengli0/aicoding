@@ -7,13 +7,21 @@ Nodes:
 """
 
 import json
+import os
 from typing import Dict, Any, List, Optional, Tuple
 import torch
+
+try:
+    import folder_paths
+    COMFYUI_AVAILABLE = True
+except ImportError:
+    COMFYUI_AVAILABLE = False
 
 from ..core.dto import (
     Shot, MediaConfig, AudioConfig, SubtitleEvent, 
     MediaType, SubtitleStyle, TransitionConfig,
 )
+from ..adapters.comfy_types import ComfyTypeAdapter
 
 
 class PixelleCreateShot:
@@ -90,14 +98,29 @@ class PixelleCreateShot:
         if audio is not None and audio_path:
             raise ValueError("Cannot provide both audio and audio_path")
         
+        # Initialize adapter for converting tensors to files
+        adapter = ComfyTypeAdapter()
+        
         # Determine media type and path
-        # Note: For IMAGE, we need to convert to temp file first
-        # This will be handled by the adapter in actual implementation
-        media_type = MediaType.IMAGE if image is not None else MediaType.VIDEO
-        media_path = "__IMAGE_TENSOR__" if image is not None else video_path
+        if image is not None:
+            media_type = MediaType.IMAGE
+            # Convert image tensor to temp PNG
+            media_path = adapter.image_to_png(
+                image_tensor=image,
+                filename=f"shot_{index:03d}_image",
+            )
+        else:
+            media_type = MediaType.VIDEO
+            media_path = video_path
         
         # Determine audio path
-        audio_p = "__AUDIO_TENSOR__" if audio is not None else audio_path
+        if audio is not None:
+            waveform, sample_rate = audio
+            audio_path = adapter.audio_to_wav(
+                waveform=waveform,
+                sample_rate=sample_rate,
+                filename=f"shot_{index:03d}_audio",
+            )
         
         # Create subtitle event
         subtitle_event = SubtitleEvent(text=caption.strip() or " ")
@@ -112,7 +135,7 @@ class PixelleCreateShot:
         shot = Shot(
             index=index,
             media=MediaConfig(type=media_type, path=media_path),
-            audio=AudioConfig(path=audio_p),
+            audio=AudioConfig(path=audio_path),
             subtitle=[subtitle_event],
             title=title.strip() if title.strip() else None,
             transition_after=transition,
