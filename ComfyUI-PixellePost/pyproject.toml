@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ComfyUI-PixellePost"
+version = "0.1.0"
+description = "Pixelle后期合成ComfyUI插件：字幕、分镜片段合成、音画时长对齐、视频拼接和BGM"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Pixelle Team"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "Pillow>=9.0.0",
+    "numpy",
+]
+
+[project.optional-dependencies]
+html = [
+    "playwright>=1.40.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/pixelle-team/ComfyUI-PixellePost"
+Repository = "https://github.com/pixelle-team/ComfyUI-PixellePost"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "nodes*", "adapters*"]
