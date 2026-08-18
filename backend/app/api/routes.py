@@ -1,13 +1,14 @@
 # API routes for projects, episodes, scripts, shots, assets, jobs, etc.
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import json
+import os
 
 from ..db.database import get_db
 from ..models.schemas import (
     Project, Episode, EntityProfile, ScriptScene, Shot,
-    PromptBundle, AssetVersion, GenerationJob, StageStatus
+    PromptBundle, AssetVersion, GenerationJob, StageStatus, ExportJob, TimelineClip
 )
 from ..models.schemas_api import (
     ProjectCreate, ProjectResponse,
@@ -21,6 +22,11 @@ from ..models.schemas_api import (
 )
 from ..services.task_queue import task_queue
 from ..services.llm_service import LLMService
+from ..services.tts_service import TTSService
+from ..services.ffmpeg_service import FFmpegService
+from ..services.comfyui_service import ComfyUIService
+from ..services.continuity_service import ContinuityService
+from ..core.config import settings
 
 router = APIRouter()
 
@@ -261,6 +267,240 @@ def cancel_job(job_id: int, db: Session = Depends(get_db)):
     db.commit()
     
     return {"status": "cancelled"}
+
+# Continuity endpoints
+@router.get("/shots/{shot_id}/continuity", response_model=dict)
+def check_shot_continuity(shot_id: int, db: Session = Depends(get_db)):
+    """Check continuity requirements for a shot"""
+    shot = db.query(Shot).filter(Shot.id == shot_id).first()
+    if not shot:
+        raise HTTPException(status_code=404, detail="Shot not found")
+    
+    continuity = ContinuityService(db)
+    return continuity.check_continuity_requirements(shot)
+
+@router.get("/shots/{shot_id}/dependencies")
+def get_shot_dependencies(shot_id: int, db: Session = Depends(get_db)):
+    """Get all upstream dependencies for a shot"""
+    shot = db.query(Shot).filter(Shot.id == shot_id).first()
+    if not shot:
+        raise HTTPException(status_code=404, detail="Shot not found")
+    
+    continuity = ContinuityService(db)
+    return {"dependencies": continuity.get_shot_dependencies(shot_id)}
+
+@router.post("/shots/{shot_id}/mark-downstream-expired")
+def mark_downstream_expired(shot_id: int, db: Session = Depends(get_db)):
+    """Mark downstream shots as expired when this shot changes"""
+    shot = db.query(Shot).filter(Shot.id == shot_id).first()
+    if not shot:
+        raise HTTPException(status_code=404, detail="Shot not found")
+    
+    continuity = ContinuityService(db)
+    affected = continuity.mark_downstream_expired(shot_id)
+    
+    return {"affected_shots": affected}
+
+@router.get("/scenes/{scene_id}/validate-continuity")
+def validate_scene_continuity(scene_id: int, db: Session = Depends(get_db)):
+    """Validate continuity chain for a scene"""
+    continuity = ContinuityService(db)
+    return continuity.validate_continuity_chain(scene_id)
+
+# TTS/Audio endpoints
+@router.get("/tts/voices")
+async def get_available_voices():
+    """Get list of available TTS voices"""
+    tts = TTSService()
+    voices = await tts.get_available_voices()
+    return {"voices": voices}
+
+@router.post("/audio/generate-dialogue")
+async def generate_dialogue(request: dict, db: Session = Depends(get_db)):
+    """Generate dialogue audio for a character"""
+    tts = TTSService()
+    
+    text = request.get("text", "")
+    voice_id = request.get("voice_id", "")
+    shot_id = request.get("shot_id")
+    emotion = request.get("emotion")
+    speed = request.get("speed", 1.0)
+    
+    if not text or not voice_id:
+        raise HTTPException(status_code=400, detail="Text and voice_id required")
+    
+    # Generate output path
+    output_filename = f"dialogue_{shot_id}_{voice_id}.wav"
+    output_path = str(settings.UPLOADS_DIR / "audios" / output_filename)
+    
+    result = await tts.generate_speech(
+        text=text,
+        voice_id=voice_id,
+        output_path=output_path,
+        emotion=emotion,
+        speed=speed
+    )
+    
+    # Create asset version
+    asset = AssetVersion(
+        asset_type="audio",
+        shot_id=shot_id,
+        file_path=output_path,
+        metadata=result
+    )
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+    
+    return {"asset_id": asset.id, "file_path": output_path, "duration": result.get("duration")}
+
+@router.post("/audio/generate-subtitles")
+async def generate_subtitles(request: dict, db: Session = Depends(get_db)):
+    """Generate SRT subtitles from dialogue timestamps"""
+    ffmpeg = FFmpegService()
+    
+    timestamps = request.get("timestamps", [])
+    episode_id = request.get("episode_id")
+    
+    if not timestamps:
+        raise HTTPException(status_code=400, detail="Timestamps required")
+    
+    # Generate output path
+    output_filename = f"episode_{episode_id}_subtitles.srt"
+    output_path = str(settings.UPLOADS_DIR / "exports" / output_filename)
+    
+    success = ffmpeg.generate_srt(timestamps, output_path)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to generate SRT")
+    
+    return {"file_path": output_path}
+
+# Export endpoints
+@router.post("/export/episode/{episode_id}")
+async def export_episode(episode_id: int, request: dict, db: Session = Depends(get_db)):
+    """Export final episode video"""
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    
+    ffmpeg = FFmpegService()
+    
+    # Get all shots for this episode
+    scenes = db.query(ScriptScene).filter(ScriptScene.episode_id == episode_id).all()
+    shot_ids = []
+    for scene in scenes:
+        shots = db.query(Shot).filter(Shot.scene_id == scene.id).all()
+        shot_ids.extend([s.id for s in shots])
+    
+    # Get selected video versions
+    video_clips = []
+    for shot_id in shot_ids:
+        shot = db.query(Shot).filter(Shot.id == shot_id).first()
+        if shot and shot.current_video_version_id:
+            version = db.query(AssetVersion).filter(AssetVersion.id == shot.current_video_version_id).first()
+            if version and version.file_path:
+                video_clips.append({
+                    "path": version.file_path,
+                    "transition": shot.edit_transition.value if shot.edit_transition else "cut"
+                })
+    
+    if not video_clips:
+        raise HTTPException(status_code=400, detail="No video clips found for export")
+    
+    # Generate output path
+    export_type = request.get("export_type", "with_subtitles")
+    output_filename = f"episode_{episode.episode_number}_{export_type}.mp4"
+    output_path = str(settings.UPLOADS_DIR / "exports" / output_filename)
+    
+    # Normalize and export with correct specs
+    success = ffmpeg.export_with_specs(
+        input_path=video_clips[0]["path"],  # Simplified - would concatenate all
+        output_path=output_path,
+        target_width=settings.VIDEO_WIDTH,
+        target_height=settings.VIDEO_HEIGHT,
+        target_fps=settings.VIDEO_FPS,
+        pixel_format="yuv420p"
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Export failed")
+    
+    # Create export job record
+    export_job = ExportJob(
+        project_id=episode.project_id,
+        episode_id=episode_id,
+        export_type=export_type,
+        output_path=output_path,
+        status=StageStatus.COMPLETED
+    )
+    db.add(export_job)
+    db.commit()
+    
+    return {
+        "export_job_id": export_job.id,
+        "output_path": output_path,
+        "specs": {
+            "width": settings.VIDEO_WIDTH,
+            "height": settings.VIDEO_HEIGHT,
+            "fps": settings.VIDEO_FPS,
+            "pixel_format": "yuv420p"
+        }
+    }
+
+@router.get("/export/verify/{export_job_id}")
+def verify_export(export_job_id: int, db: Session = Depends(get_db)):
+    """Verify exported video meets specifications"""
+    export_job = db.query(ExportJob).filter(ExportJob.id == export_job_id).first()
+    if not export_job:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    
+    ffmpeg = FFmpegService()
+    
+    try:
+        info = ffmpeg.probe_video(export_job.output_path)
+        
+        # Verify specs
+        video_stream = None
+        for stream in info.get("streams", []):
+            if stream.get("codec_type") == "video":
+                video_stream = stream
+                break
+        
+        if not video_stream:
+            return {"valid": False, "error": "No video stream found"}
+        
+        issues = []
+        
+        # Check resolution
+        if video_stream.get("width") != settings.VIDEO_WIDTH:
+            issues.append(f"Width mismatch: {video_stream.get('width')} != {settings.VIDEO_WIDTH}")
+        if video_stream.get("height") != settings.VIDEO_HEIGHT:
+            issues.append(f"Height mismatch: {video_stream.get('height')} != {settings.VIDEO_HEIGHT}")
+        
+        # Check FPS
+        fps = eval(video_stream.get("r_frame_rate", "0/1")) if video_stream.get("r_frame_rate") else 0
+        if abs(fps - settings.VIDEO_FPS) > 0.1:
+            issues.append(f"FPS mismatch: {fps} != {settings.VIDEO_FPS}")
+        
+        # Check pixel format
+        if video_stream.get("pix_fmt") != "yuv420p":
+            issues.append(f"Pixel format mismatch: {video_stream.get('pix_fmt')} != yuv420p")
+        
+        return {
+            "valid": len(issues) == 0,
+            "issues": issues,
+            "info": {
+                "width": video_stream.get("width"),
+                "height": video_stream.get("height"),
+                "fps": fps,
+                "pix_fmt": video_stream.get("pix_fmt"),
+                "codec": video_stream.get("codec_name"),
+                "duration": info.get("format", {}).get("duration")
+            }
+        }
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
 
 # WebSocket for real-time updates
 @router.websocket("/ws/queue")

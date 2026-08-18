@@ -163,7 +163,7 @@ class AssetVersion(Base):
     
     file_path = Column(String(1024))
     thumbnail_path = Column(String(1024))
-    metadata = Column(JSON)  # model, workflow version, params, seed, inputs
+    params_data = Column(JSON)  # model, workflow version, params, seed, inputs (renamed from metadata)
     dependencies = Column(JSON)  # list of dependency version IDs
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     error_message = Column(Text)
