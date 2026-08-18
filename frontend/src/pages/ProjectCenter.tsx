@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectApi, healthApi } from '../api';
 import type { Project } from '../types';
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function ProjectCenter({ onSelectProject }: Props) {
+  const navigate = useNavigate();
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
@@ -154,7 +156,10 @@ export default function ProjectCenter({ onSelectProject }: Props) {
               <button
                 className="btn btn-primary"
                 style={{ flex: 1 }}
-                onClick={() => onSelectProject(project.id)}
+                onClick={() => {
+                  onSelectProject(project.id);
+                  navigate('/workspace/novel');
+                }}
               >
                 进入工作台
               </button>

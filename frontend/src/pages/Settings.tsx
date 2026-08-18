@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { settingsApi } from '../api';
 
@@ -28,6 +28,26 @@ export default function Settings() {
 
   const [testingAdapter, setTestingAdapter] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, boolean>>({});
+  const initializedRef = useRef(false);
+
+  // 加载现有设置到表单（仅执行一次）
+  useEffect(() => {
+    if (settingsData && !initializedRef.current) {
+      initializedRef.current = true;
+      setForm(prev => ({
+        ...prev,
+        llm_url: settingsData.llm?.url || '',
+        llm_model: settingsData.llm?.model || '',
+        image_url: settingsData.image?.url || '',
+        image_model: settingsData.image?.model || '',
+        video_url: settingsData.video?.url || '',
+        video_model: settingsData.video?.model || 'minimax-h3',
+        tts_url: settingsData.tts?.url || '',
+        tts_voice: settingsData.tts?.voice || '',
+        ffmpeg_path: settingsData.ffmpeg || 'ffmpeg',
+      }));
+    }
+  }, [settingsData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -51,22 +71,6 @@ export default function Settings() {
 
   if (isLoading) {
     return <div className="editor-panel">加载中...</div>;
-  }
-
-  // 加载现有设置
-  if (settingsData && !form.llm_url) {
-    setForm(prev => ({
-      ...prev,
-      llm_url: settingsData.llm?.url || '',
-      llm_model: settingsData.llm?.model || '',
-      image_url: settingsData.image?.url || '',
-      image_model: settingsData.image?.model || '',
-      video_url: settingsData.video?.url || '',
-      video_model: settingsData.video?.model || 'minimax-h3',
-      tts_url: settingsData.tts?.url || '',
-      tts_voice: settingsData.tts?.voice || '',
-      ffmpeg: settingsData.ffmpeg || 'ffmpeg',
-    }));
   }
 
   const handleSubmit = (e: React.FormEvent) => {

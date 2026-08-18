@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 
-// 页面组件（后续实现）
+// 页面组件
 import ProjectCenter from './pages/ProjectCenter';
 import Workspace from './pages/Workspace';
 import Settings from './pages/Settings';

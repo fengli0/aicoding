@@ -1,4 +1,3 @@
-```
 # Dependencies
 node_modules/
 .venv/
@@ -33,13 +32,11 @@ target/
 Thumbs.db
 
 # Python specific
-__pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 env/
-venv/
 ENV/
 pip-log.txt
 pip-delete-this-directory.txt
@@ -50,27 +47,28 @@ pip-delete-this-directory.txt
 nosetests.xml
 coverage.xml
 *.cover
-*.log
-.git/
 .mypy_cache/
 .pytest_cache/
 .hypothesis/
 
 # Node.js specific
-node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-node_modules/
-dist
-build
 .nyc_output
 coverage
 .nyc_output/
 coverage/
-*.log
 
 # TypeScript/JavaScript build output
 lib/
 out/
-```
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Project specific
+aicoding.db
+projects/
