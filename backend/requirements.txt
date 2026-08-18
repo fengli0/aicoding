@@ -1,0 +1,9 @@
+"""
+AI 短剧生成工作台 - 后端依赖
+"""
+
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+aiohttp>=3.9.0
+pydantic>=2.5.0
