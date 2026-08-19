@@ -1,0 +1,114 @@
+{
+  "last_node_id": 45,
+  "last_link_id": 89,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "MinimaxH3Loader",
+      "pos": [100, 200],
+      "size": [300, 100],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "model", "type": "MINIMAX_MODEL", "links": [1]}],
+      "properties": {"Node name for S&R": "MinimaxH3Loader"},
+      "widgets_values": ["minimax_h3_v1.safetensors"]
+    },
+    {
+      "id": 2,
+      "type": "MinimaxH3PromptEncoder",
+      "pos": [450, 100],
+      "size": [400, 200],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MINIMAX_MODEL", "link": 1},
+        {"name": "positive_prompt", "type": "STRING", "link": null},
+        {"name": "negative_prompt", "type": "STRING", "link": null}
+      ],
+      "outputs": [{"name": "conditioning", "type": "MINIMAX_COND", "links": [2]}],
+      "properties": {"Node name for S&R": "MinimaxH3PromptEncoder"},
+      "widgets_values": {
+        "positive_prompt": "",
+        "negative_prompt": "worst quality, low quality, blurry, distorted, deformed",
+        "text_encoder": "default"
+      }
+    },
+    {
+      "id": 3,
+      "type": "ImageLoad",
+      "pos": [450, 350],
+      "size": [300, 100],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "image", "type": "IMAGE", "links": [3]}],
+      "properties": {"Node name for S&R": "ImageLoad"},
+      "widgets_values": ["reference_image.png"]
+    },
+    {
+      "id": 4,
+      "type": "MinimaxH3Sampler",
+      "pos": [900, 200],
+      "size": [350, 250],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MINIMAX_MODEL", "link": 1},
+        {"name": "conditioning", "type": "MINIMAX_COND", "link": 2},
+        {"name": "reference_image", "type": "IMAGE", "link": 3},
+        {"name": "continuity_frame", "type": "IMAGE", "link": null}
+      ],
+      "outputs": [{"name": "video", "type": "VIDEO", "links": [5]}],
+      "properties": {"Node name for S&R": "MinimaxH3Sampler"},
+      "widgets_values": {
+        "width": 1920,
+        "height": 1080,
+        "frames": 75,
+        "fps": 25,
+        "duration": 3.0,
+        "seed": 0,
+        "cfg_scale": 7.0,
+        "steps": 30,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "use_continuity": false
+      }
+    },
+    {
+      "id": 5,
+      "type": "VideoSave",
+      "pos": [1300, 200],
+      "size": [300, 150],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [{"name": "video", "type": "VIDEO", "link": 5}],
+      "outputs": [],
+      "properties": {"Node name for S&R": "VideoSave"},
+      "widgets_values": {
+        "filename_prefix": "minimax_output",
+        "format": "mp4",
+        "codec": "h264",
+        "crf": 23
+      }
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "MINIMAX_MODEL"],
+    [2, 2, 0, 4, 1, "MINIMAX_COND"],
+    [3, 3, 0, 4, 2, "IMAGE"],
+    [5, 4, 0, 5, 0, "VIDEO"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {"scale": 1, "offset": [0, 0]},
+    "workspace_info": {"title": "Minimax H3 Video Generation"}
+  },
+  "version": 0.4
+}
