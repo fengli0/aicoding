@@ -1,18 +1,22 @@
 # Task queue service for background job processing
 import asyncio
 import json
+import sqlite3
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from sqlalchemy.orm import Session
-from ..db.database import SessionLocal
-from ..models.schemas import GenerationJob, JobStatus, AssetVersion
-from ..core.config import settings
+from pathlib import Path
 
 class TaskQueue:
     def __init__(self):
         self.queue: asyncio.Queue = asyncio.Queue()
-        self.running_jobs: Dict[int, dict] = {}
+        self.running_jobs: Dict[str, dict] = {}
         self._processor_task: Optional[asyncio.Task] = None
+        self.db_path = 'data/dramacraft.db'
+        
+    def get_db(self):
+        db = sqlite3.connect(self.db_path)
+        db.row_factory = sqlite3.Row
+        return db
         
     async def start(self):
         """Start the background job processor"""
@@ -29,7 +33,7 @@ class TaskQueue:
                 pass
             self._processor_task = None
     
-    async def add_job(self, job_id: int, job_type: str, priority: int = 0):
+    async def add_job(self, job_id: str, job_type: str, priority: int = 0):
         """Add a job to the queue"""
         await self.queue.put({
             "job_id": job_id,
@@ -46,11 +50,13 @@ class TaskQueue:
                 job_id = job_info["job_id"]
                 
                 # Get job from database
-                db = SessionLocal()
+                db = self.get_db()
+                cursor = db.cursor()
                 try:
-                    job = db.query(GenerationJob).filter(GenerationJob.id == job_id).first()
-                    if job and job.status == JobStatus.PENDING:
-                        await self._execute_job(db, job)
+                    cursor.execute("SELECT * FROM generation_jobs WHERE id = ?", (job_id,))
+                    row = cursor.fetchone()
+                    if row and row['status'] == 'pending':
+                        await self._execute_job(db, row)
                 finally:
                     db.close()
                 
@@ -60,46 +66,56 @@ class TaskQueue:
             except Exception as e:
                 print(f"Error processing job: {e}")
     
-    async def _execute_job(self, db: Session, job: GenerationJob):
+    async def _execute_job(self, db: sqlite3.Connection, job: sqlite3.Row):
         """Execute a generation job"""
-        job.status = JobStatus.RUNNING
-        job.started_at = datetime.now()
+        cursor = db.cursor()
+        cursor.execute('''
+            UPDATE generation_jobs SET status = 'running', started_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (job['id'],))
         db.commit()
         
         try:
-            if job.job_type == "video":
+            if job['job_type'] == 'video':
                 await self._execute_video_job(db, job)
-            elif job.job_type == "image":
+            elif job['job_type'] == 'image':
                 await self._execute_image_job(db, job)
-            elif job.job_type == "audio":
+            elif job['job_type'] == 'audio':
                 await self._execute_audio_job(db, job)
-            elif job.job_type == "llm":
+            elif job['job_type'] == 'llm':
                 await self._execute_llm_job(db, job)
             
-            job.status = JobStatus.COMPLETED
-            job.completed_at = datetime.now()
+            cursor.execute('''
+                UPDATE generation_jobs SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (job['id'],))
         except Exception as e:
-            job.retry_count += 1
-            if job.retry_count < job.max_retries:
+            retry_count = job['retry_count'] + 1
+            if retry_count < job['max_retries']:
                 # Re-queue for retry
-                job.status = JobStatus.PENDING
-                await self.add_job(job.id, job.job_type, job.priority)
+                cursor.execute('''
+                    UPDATE generation_jobs SET status = 'pending', retry_count = ?
+                    WHERE id = ?
+                ''', (retry_count, job['id']))
+                await self.add_job(job['id'], job['job_type'], job['priority'])
             else:
-                job.status = JobStatus.FAILED
-                job.error_message = str(e)
-                job.completed_at = datetime.now()
+                cursor.execute('''
+                    UPDATE generation_jobs SET status = 'failed', error_message = ?, retry_count = ?, completed_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (str(e), retry_count, job['id']))
         
         db.commit()
     
-    async def _execute_video_job(self, db: Session, job: GenerationJob):
+    async def _execute_video_job(self, db: sqlite3.Connection, job: sqlite3.Row):
         """Execute a video generation job via ComfyUI"""
-        from ..services.comfyui_service import ComfyUIService
+        from .comfyui_service import ComfyUIService
         
         comfyui = ComfyUIService()
-        input_data = job.input_data
+        input_data = json.loads(job['parameters'] or '{}')
         
         # Check workflow availability
-        if not await comfyui.check_workflow(input_data.get("workflow_path")):
+        workflow_path = input_data.get("workflow_path", "workflows/minimax_h3_video.json")
+        if not await comfyui.check_workflow(workflow_path):
             raise Exception("ComfyUI workflow not available")
         
         # Submit to ComfyUI
@@ -110,7 +126,11 @@ class TaskQueue:
             params=input_data.get("params", {})
         )
         
-        job.comfyui_prompt_id = prompt_id
+        # Update job with ComfyUI prompt ID
+        cursor = db.cursor()
+        cursor.execute('''
+            UPDATE generation_jobs SET comfyui_job_id = ? WHERE id = ?
+        ''', (prompt_id, job['id']))
         db.commit()
         
         # Wait for completion
@@ -120,63 +140,47 @@ class TaskQueue:
             # Create asset version
             output_file = result["output_files"][0] if result.get("output_files") else None
             if output_file:
-                asset_version = AssetVersion(
-                    asset_type="video",
-                    shot_id=input_data.get("shot_id"),
-                    prompt_bundle_id=input_data.get("prompt_bundle_id"),
-                    job_id=job.id,
-                    file_path=output_file,
-                    metadata={
-                        "model": input_data.get("model"),
-                        "workflow_version": input_data.get("workflow_version"),
-                        "params": input_data.get("params"),
-                        "seed": input_data.get("seed")
-                    },
-                    dependencies=input_data.get("dependencies", [])
-                )
-                db.add(asset_version)
+                cursor.execute('''
+                    INSERT INTO asset_versions (asset_type, shot_id, file_path, model_name, workflow_version, parameters, seed, status, is_current)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', 1)
+                ''', ('video', input_data.get("shot_id"), output_file, 
+                      input_data.get("model", ""), input_data.get("workflow_version", ""),
+                      json.dumps(input_data.get("params", {})), input_data.get("seed")))
                 db.commit()
         else:
             raise Exception(result.get("error", "Unknown error"))
     
-    async def _execute_image_job(self, db: Session, job: GenerationJob):
+    async def _execute_image_job(self, db: sqlite3.Connection, job: sqlite3.Row):
         """Execute an image generation job"""
-        # Similar structure to video job but for images
-        input_data = job.input_data
+        input_data = json.loads(job['parameters'] or '{}')
         
         # Placeholder implementation
-        asset_version = AssetVersion(
-            asset_type="image",
-            shot_id=input_data.get("shot_id"),
-            prompt_bundle_id=input_data.get("prompt_bundle_id"),
-            job_id=job.id,
-            file_path=f"/tmp/generated_{job.id}.png",
-            metadata=input_data,
-            dependencies=input_data.get("dependencies", [])
-        )
-        db.add(asset_version)
+        cursor = db.cursor()
+        cursor.execute('''
+            INSERT INTO asset_versions (asset_type, shot_id, file_path, model_name, parameters, status, is_current)
+            VALUES (?, ?, ?, ?, ?, 'completed', 1)
+        ''', ('image', input_data.get("shot_id"), f"/tmp/generated_{job['id']}.png",
+              input_data.get("model", ""), json.dumps(input_data)))
         db.commit()
     
-    async def _execute_audio_job(self, db: Session, job: GenerationJob):
+    async def _execute_audio_job(self, db: sqlite3.Connection, job: sqlite3.Row):
         """Execute an audio generation job"""
-        input_data = job.input_data
+        input_data = json.loads(job['parameters'] or '{}')
         
         # Placeholder implementation
-        asset_version = AssetVersion(
-            asset_type="audio",
-            job_id=job.id,
-            file_path=f"/tmp/generated_{job.id}.wav",
-            metadata=input_data
-        )
-        db.add(asset_version)
+        cursor = db.cursor()
+        cursor.execute('''
+            INSERT INTO asset_versions (asset_type, file_path, model_name, status, is_current)
+            VALUES (?, ?, ?, 'completed', 1)
+        ''', ('audio', f"/tmp/generated_{job['id']}.wav", input_data.get("model", "")))
         db.commit()
     
-    async def _execute_llm_job(self, db: Session, job: GenerationJob):
+    async def _execute_llm_job(self, db: sqlite3.Connection, job: sqlite3.Row):
         """Execute an LLM generation job"""
-        from ..services.llm_service import LLMService
+        from .llm_service import LLMService
         
         llm = LLMService()
-        input_data = job.input_data
+        input_data = json.loads(job['parameters'] or '{}')
         
         result = await llm.generate(
             prompt=input_data.get("prompt"),
@@ -184,8 +188,12 @@ class TaskQueue:
             model=input_data.get("model")
         )
         
-        # Store result in job metadata or create appropriate record
-        job.input_data["result"] = result
+        # Store result in job parameters
+        input_data["result"] = result
+        cursor = db.cursor()
+        cursor.execute('''
+            UPDATE generation_jobs SET parameters = ? WHERE id = ?
+        ''', (json.dumps(input_data), job['id']))
         db.commit()
 
 # Global task queue instance

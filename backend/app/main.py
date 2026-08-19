@@ -3,14 +3,14 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncio
+import os
 
-from .db.database import engine, Base, SessionLocal
-from .api.routes import router
+# 确保数据目录存在
+os.makedirs('data', exist_ok=True)
+
+from .api import router as api_router
 from .services.task_queue import task_queue
 from .core.config import settings
-
-# Create database tables
-Base.metadata.create_all(bind=engine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,7 +37,7 @@ app.add_middleware(
 )
 
 # Include API routes
-app.include_router(router, prefix="/api")
+app.include_router(api_router, prefix="/api")
 
 @app.get("/")
 def root():
@@ -51,7 +51,7 @@ def root():
 def health_check():
     return {"status": "healthy"}
 
-# WebSocket endpoint for real-time updates
+# WebSocket endpoint for real-time updates (kept for backward compatibility)
 @app.websocket("/ws/updates")
 async def websocket_updates(websocket: WebSocket):
     await websocket.accept()
@@ -69,7 +69,7 @@ async def websocket_updates(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "main:app",
+        "app.main:app",
         host=settings.HOST,
         port=settings.PORT,
         reload=True

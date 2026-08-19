@@ -135,3 +135,150 @@ export interface GenerationJob {
   started_at?: string;
   completed_at?: string;
 }
+
+export interface PromptBundle {
+  id: string;
+  project_id: string;
+  type: 'character' | 'scene' | 'prop' | 'shot';
+  entity_id?: string;
+  positive_prompt: string;
+  negative_prompt: string;
+  model_params: Record<string, any>;
+  seed?: number;
+  locked: boolean;
+  current_version_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EntityProfile {
+  id: string;
+  project_id: string;
+  name: string;
+  type: 'character' | 'location' | 'prop';
+  description: string;
+  aliases: string[];
+  image_url?: string;
+  prompt_bundle_id?: string;
+  metadata: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EntityVariant {
+  id: string;
+  entity_id: string;
+  name: string;
+  variant_type: 'costume' | 'age' | 'injury' | 'time_of_day' | 'weather';
+  description?: string;
+  image_url?: string;
+  prompt_bundle_id?: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface VideoVersion {
+  id: string;
+  shot_id: string;
+  version_number: number;
+  file_path: string;
+  thumbnail_path: string;
+  width: number;
+  height: number;
+  duration: number;
+  fps: number;
+  file_size: number;
+  model_name: string;
+  workflow_version: string;
+  prompt_used: string;
+  seed?: number;
+  continuity_frame_path?: string;
+  reference_image_path?: string;
+  error_message?: string;
+  is_current: boolean;
+  comfyui_job_id?: string;
+  created_at: string;
+}
+
+export interface AudioTrack {
+  id: string;
+  episode_id: string;
+  type: 'dialogue' | 'narration' | 'bgm' | 'sfx';
+  character_id?: string;
+  file_path: string;
+  start_time: number;
+  duration: number;
+  volume: number;
+  fade_in?: number;
+  fade_out?: number;
+  metadata: Record<string, any>;
+}
+
+export interface SubtitleCue {
+  id: string;
+  episode_id: string;
+  start_time: number;
+  end_time: number;
+  text: string;
+  character_name?: string;
+}
+
+export interface ExportJob {
+  id: string;
+  project_id: string;
+  episode_id?: string;
+  type: 'episode' | 'full_series';
+  format: 'mp4' | 'mov' | 'mkv';
+  include_subtitles: boolean;
+  output_path?: string;
+  status: StageStatus;
+  progress: number;
+  error_message?: string;
+  created_at: string;
+  completed_at?: string;
+}
+
+export interface TaskQueueItem {
+  id: string;
+  type: 'llm' | 'image_gen' | 'video_gen' | 'tts' | 'ffmpeg' | 'export';
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  priority: number;
+  retry_count: number;
+  data: Record<string, any>;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+}
+
+export interface WebSocketMessage {
+  type: 'job_progress' | 'job_completed' | 'job_failed' | 'queue_update' | 'error';
+  payload: any;
+  timestamp: string;
+}
+
+export interface ComfyUIConfig {
+  enabled: boolean;
+  base_url: string;
+  workflow_path: string;
+  api_key?: string;
+  timeout: number;
+  max_retries: number;
+}
+
+export interface TTSConfig {
+  provider: 'edge' | 'azure' | 'mock';
+  api_key?: string;
+  region?: string;
+  default_voice: string;
+  default_speed: number;
+}
+
+export interface LLMConfig {
+  provider: 'openai' | 'anthropic' | 'local';
+  base_url?: string;
+  api_key?: string;
+  model: string;
+  max_tokens: number;
+  temperature: number;
+}
